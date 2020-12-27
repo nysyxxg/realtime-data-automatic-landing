@@ -1,0 +1,67 @@
+# Java
+hs_err_pid*
+
+# Git
+*.orij
+*.rej
+
+# SVN
+.svn
+.revision
+git.properties
+
+# Eclipse
+.metadata
+.classpath
+.eclipse/
+.idea/
+.project
+.revision/
+.settings/
+.externalToolBuilders/
+local.properties
+.recommenders
+*.launch
+build/
+target/
+out/
+
+# Intellij
+*.ipr
+*.iws
+*.iml
+
+# NetBeans
+*~.nib
+nbbuild/
+nbproject/
+dist/
+nbdist/
+.ndb-gradle/
+.cproject
+.buildpath
+nb-configuration.xml
+nbactions.xml
+
+# Other
+*~
+logs/
+*.out
+*.log
+*.bak
+*.tmp
+tmp/**
+tmp/**/*
+.DS_Store
+.gradle
+*.patch
+*.swp
+.ant-targets-build.xml
+
+# C
+tags
+obj
+
+# Python
+*.py[cod]
+/data/version-2/
