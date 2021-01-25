@@ -16,3 +16,12 @@
 
 "5: 根据元数据最新的表结构，构建sql，实时写入数据库"
 
+
+ --bootstrapServers 172.21.1.167:9092 
+ --groupId mysql_groupId_20201025 
+ --kafkaTopic test-json 
+ --reset earliest
+ --errorDataPath /data/landing/error/mysql 
+ --checkPointPath /data/landingr/checkpoint/mysql 
+ --processFile /data/landing/process_file/mysql
+
