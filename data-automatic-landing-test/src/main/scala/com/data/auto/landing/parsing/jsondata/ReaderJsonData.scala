@@ -4,6 +4,7 @@ import com.data.auto.landing.common.util.JsonUtils
 import com.data.auto.landing.table.config.ReaderConfigStore
 import com.fasterxml.jackson.core.`type`.TypeReference
 import org.apache.commons.lang3.StringUtils
+import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.slf4j.LoggerFactory
 
 import scala.collection.mutable.ListBuffer
@@ -81,13 +82,20 @@ object ReaderJsonData {
   }
 
 
-  def readRecordV1(jsonMap: Map[String, Any]): Seq[(String, Map[String, String])] = {
+  def readRecordV1(value: ConsumerRecord[String, String]): Seq[(String, Map[String, String])] = {
     var list = new ListBuffer[(String, Map[String, String])]()
     try {
-      var dbType = jsonMap.getOrElse("dbType", "").asInstanceOf[String]
-      var database = jsonMap.getOrElse("database", "").asInstanceOf[String]
-
+      var jsonMap: Map[String, Any] = JsonUtils.toObject(value.value, new TypeReference[Map[String, Any]] {})
+      val dbType = jsonMap.getOrElse("dbType", "").asInstanceOf[String]
+      val database = jsonMap.getOrElse("database", "").asInstanceOf[String]
       val tableNamesArray = jsonMap.getOrElse("tableName", "").toString.split(",")
+      if(dbType.isEmpty || database.isEmpty || tableNamesArray.length==0){
+        var map = Map[String, String]()
+        map += ("error" -> value.value)
+        list.+=(new Tuple2("error", map))
+        return  list
+      }
+
       var uuId = jsonMap.getOrElse("uuId", "")
       var msgId = jsonMap.getOrElse("msgId", "")
       var dataVer = jsonMap.getOrElse("dataVer", "")
@@ -99,7 +107,6 @@ object ReaderJsonData {
           var value = line._2
           (key, value.toString)
         })
-        newJsonMap += ("database" -> database.toString)
         newJsonMap += ("uuId" -> uuId.toString)
         newJsonMap += ("msgId" -> msgId.toString)
         newJsonMap += ("dataVer" -> dataVer.toString)
@@ -112,7 +119,6 @@ object ReaderJsonData {
           if (tableData != null && !tableData.isEmpty) { // 说明存在子表
             val tableMapData = tableData.get
             var jsonMapSubTable = tableMapData.asInstanceOf[Map[String, String]]
-            jsonMapSubTable += ("database" -> database.toString)
             jsonMapSubTable += ("uuId" -> uuId.toString)
             jsonMapSubTable += ("msgId" -> msgId.toString)
             jsonMapSubTable += ("dataVer" -> dataVer.toString)
@@ -123,7 +129,6 @@ object ReaderJsonData {
 
         var tablelist = tableNamesArray.toList
         var newDataMap = dataMap.filter(line => !tablelist.contains(line._1)).asInstanceOf[Map[String, String]]
-        newDataMap += ("database" -> database.toString)
         newDataMap += ("uuId" -> uuId.toString)
         newDataMap += ("msgId" -> msgId.toString)
         newDataMap += ("dataVer" -> dataVer.toString)

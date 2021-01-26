@@ -3,6 +3,7 @@ package com.data.auto.landing.output.hive
 import java.time.format.DateTimeFormatter
 import java.time.{Instant, ZoneId}
 
+import com.data.auto.landing.common.util.JsonUtils
 import com.data.auto.landing.output.LandOutputTrait
 import com.data.auto.landing.table.metadata.matcher.MetaDataMatcher
 import com.data.auto.landing.table.metadata.store.MetaDataStore
@@ -122,7 +123,13 @@ class LandingToHive(groupId: String, hiveDbName: String, filterTables: Set[Strin
 
   override def writeRDD(rddData: Map[String, String], spark: SparkSession, filterTables: Set[String]): Unit = {
     rddData.map(value => {
-      println("key=" + value._1 + "\t  value= " + value._2.toString)
+      var data = ""
+      if(value._2.isInstanceOf[Map[String,String]]){
+        data = JsonUtils.toJson(value._2)
+      }else{
+        data = value._2
+      }
+      println("key=" + value._1 + "\t  data= " + data)
     })
   }
 

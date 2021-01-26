@@ -2,7 +2,8 @@ package com.data.auto.landing.engine
 
 import java.io.File
 import java.net.URI
-import java.util.Properties
+import java.text.SimpleDateFormat
+import java.util.{Date, Properties}
 
 import com.data.auto.landing.common.util.JsonUtils
 import com.data.auto.landing.output.hive.LandingToHive
@@ -48,12 +49,10 @@ object SparkEngineDriver {
 
   private val PROCESS_FILE = ("processFile", "hdfs上的进程文件,删除即停止.")
 
-  private val HIVE_DB_NAME = ("hiveDbName", "存储数据库名")
-
   private val HIVE_FILTER_TABLS = ("hiveFilterTables", "只写入对应的hive表");
 
   private val RUN_PARAM = List(BOOTSTRAP_SERVER, KAFKA_GROUP_ID, KAFKA_AUTO_OFFSET,
-    KAFKA_TOPIC, HIVE_DB_NAME, ERROR_DATE_PATH, CHECKPOINT_PATH, PROCESS_FILE, HIVE_FILTER_TABLS)
+    KAFKA_TOPIC, ERROR_DATE_PATH, CHECKPOINT_PATH, PROCESS_FILE, HIVE_FILTER_TABLS)
 
   private val SPARK_CMD = "spark-submit "
 
@@ -103,7 +102,7 @@ object SparkEngineDriver {
 
 
   def processEveryLineV1(key: String, records: Iterable[Map[String, String]], spark: SparkSession,
-                         hiveDbName: String, groupId: String, dbConfigfile: File, hiveFilterTables: Set[String]) = {
+                         groupId: String, dbConfigfile: File, hiveFilterTables: Set[String]) = {
     var keyArray = key.split("##")
     var dbType = keyArray(0)
     var database = keyArray(1)
@@ -111,7 +110,7 @@ object SparkEngineDriver {
     //判断数据库是否存在
     var output = if ("hive".equalsIgnoreCase(dbType)) {
       log.info(s"数据开始写入.....Hive.............................." + database)
-      new LandingToHive(groupId, hiveDbName, hiveFilterTables)
+      new LandingToHive(groupId, database, hiveFilterTables)
     } else if ("mysql".equalsIgnoreCase(dbType)) {
       log.info(s"数据开始写入.....Mysql............................." + database)
       new LandToMySQL(groupId, dbConfigfile)
@@ -149,14 +148,17 @@ object SparkEngineDriver {
   }
 
   def processJsonDataV1(value: ConsumerRecord[String, String]): Seq[(String, Map[String, String])] = {
-    var jsonMap: Map[String, Any] = JsonUtils.toObject(value.value, new TypeReference[Map[String, Any]] {})
     // 处理每条数据
     var data = try {
-      ReaderJsonData.readRecordV1(jsonMap)
+      ReaderJsonData.readRecordV1(value)
     } catch {
       case _: Exception =>
         log.info("错误数据，无法解析--->" + value.value)
-        Seq.empty
+        var list = new ListBuffer[(String, Map[String, String])]()
+        var map = Map[String, String]()
+        map += ("error" -> value.value)
+        list.+=(new Tuple2("error", map))
+        list
     }
     data
   }
@@ -216,11 +218,9 @@ object SparkEngineDriver {
 
     val checkpointDataPath = commandLine.getOptionValue(CHECKPOINT_PATH._1)
 
-    val hiveDbName = commandLine.getOptionValue(HIVE_DB_NAME._1)
-
     val hiveFilterTables = StringUtils.split(commandLine.getOptionValue(HIVE_FILTER_TABLS._1, StringUtils.EMPTY), ',').toSet
 
-    val appName = s"Ods Loader: Kafka [ ${kafkaTopic.mkString(" ")} ] to ${if (StringUtils.isBlank(hiveDbName)) "MySQL" else hiveDbName}"
+    val appName = s"Ods Loader: Kafka [ ${kafkaTopic.mkString(" ")} ] to my dataBase"
 
     val spark = SparkSession.builder.appName(appName).master("local[2]").enableHiveSupport.getOrCreate
 
@@ -280,21 +280,24 @@ object SparkEngineDriver {
           //              })
           //            }
           // 2-2 ：处理一个分区的数据,按照数据库类型，数据库名和表名称进行分组
-          val keyValueRdd = rdd.map(processJsonDataV1(_))
-          keyValueRdd.flatMap(data => data).map(line => (line._1, line._2)).groupByKey().foreachPartition(partition => {
+          val keyValueRdd = rdd.map(processJsonDataV1(_)).flatMap(data => data).cache()
+          val keyValueFilterRdd = keyValueRdd.filter(!_._1.equalsIgnoreCase("error"))
+          keyValueFilterRdd.map(line => (line._1, line._2)).groupByKey().foreachPartition(partition => {
             partition.foreach(iter => {
               var key = iter._1
               var values = iter._2
-              processEveryLineV1(key, values, spark, hiveDbName, groupId, dbConfigfile, hiveFilterTables)
+              processEveryLineV1(key, values, spark, groupId, dbConfigfile, hiveFilterTables)
             })
           })
 
           if (StringUtils.isNotBlank(errorDataPath)) {
             log.info(s"输出错误数据到$errorDataPath")
-            if (keyValueRdd.isEmpty()) { // 说明json解析错误
-              if (!rdd.isEmpty()) {
-                rdd.saveAsTextFile(errorDataPath + "/error")
-              }
+            if (!keyValueRdd.isEmpty()) { // 说明json解析错误
+              val date = new SimpleDateFormat("yyyyMMddHHmm")
+              val day = date.format(new Date())
+              keyValueRdd.filter(_._1.equalsIgnoreCase("error")).map(line => {
+                line._2.get("error").get.asInstanceOf[String]
+              }).saveAsTextFile(errorDataPath + "/error/" + day + "/")
             }
           }
         } catch {
