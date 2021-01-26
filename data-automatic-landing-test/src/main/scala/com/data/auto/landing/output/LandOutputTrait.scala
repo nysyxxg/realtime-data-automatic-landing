@@ -17,4 +17,6 @@ trait LandOutputTrait extends Serializable {
   def writeRDD(rddData:  List[Seq[(String, Map[String, String])]], spark: SparkSession, filterTables: Set[String])
 
   def writeRDD(rddData:Seq[(String, Map[String, String])], spark: SparkSession, filterTables: Set[String])
+
+  def writeRDD(rddData:  Map[String, String], spark: SparkSession, filterTables: Set[String])
 }

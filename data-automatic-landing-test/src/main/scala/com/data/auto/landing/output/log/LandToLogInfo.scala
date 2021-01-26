@@ -26,4 +26,11 @@ class LandToLogInfo(dbConfigfile: File)extends LandOutputTrait with Serializable
       })
     })
   }
+
+  override def writeRDD(rddData: Map[String, String], spark: SparkSession, filterTables: Set[String]): Unit = {
+    rddData.map(value => {
+      println("key=" + value._1 + "\t  value= " + value._2.toString)
+    })
+  }
+
 }

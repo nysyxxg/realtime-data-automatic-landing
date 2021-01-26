@@ -28,4 +28,11 @@ class LandToHbase(groupId: String, dbConfigfile: File) extends LandOutputTrait w
       })
     })
   }
+
+  override def writeRDD(rddData: Map[String, String], spark: SparkSession, filterTables: Set[String]): Unit = {
+    rddData.map(value => {
+      println("key=" + value._1 + "\t  value= " + value._2.toString)
+    })
+  }
+
 }

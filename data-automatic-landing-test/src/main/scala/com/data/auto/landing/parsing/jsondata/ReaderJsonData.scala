@@ -21,8 +21,10 @@ object ReaderJsonData {
 
   private val constantSplitChar = ":"
 
+  private val keySplitChar = "##"
 
-  def readRecord(jsonMap:Map[String, Any]): Seq[(String, Map[String, String])] = {
+
+  def readRecord(jsonMap: Map[String, Any]): Seq[(String, Map[String, String])] = {
     var list = new ListBuffer[(String, Map[String, String])]()
     try {
       var database = jsonMap.getOrElse("database", "")
@@ -78,6 +80,64 @@ object ReaderJsonData {
     list
   }
 
+
+  def readRecordV1(jsonMap: Map[String, Any]): Seq[(String, Map[String, String])] = {
+    var list = new ListBuffer[(String, Map[String, String])]()
+    try {
+      var dbType = jsonMap.getOrElse("dbType", "").asInstanceOf[String]
+      var database = jsonMap.getOrElse("database", "").asInstanceOf[String]
+
+      val tableNamesArray = jsonMap.getOrElse("tableName", "").toString.split(",")
+      var uuId = jsonMap.getOrElse("uuId", "")
+      var msgId = jsonMap.getOrElse("msgId", "")
+      var dataVer = jsonMap.getOrElse("dataVer", "")
+      var dataStamp = jsonMap.getOrElse("dataStamp", "")
+      var dataMap = jsonMap.get("data").get.asInstanceOf[Map[String, Any]]
+      if (tableNamesArray.size == 1) {
+        var newJsonMap: Map[String, String] = dataMap.map(line => {
+          var key = line._1
+          var value = line._2
+          (key, value.toString)
+        })
+        newJsonMap += ("database" -> database.toString)
+        newJsonMap += ("uuId" -> uuId.toString)
+        newJsonMap += ("msgId" -> msgId.toString)
+        newJsonMap += ("dataVer" -> dataVer.toString)
+        newJsonMap += ("dataStamp" -> dataStamp.toString)
+        list.+=(new Tuple2(dbType + keySplitChar + database + keySplitChar + tableNamesArray(0), newJsonMap))
+      } else if (tableNamesArray.size > 1) {
+        for (i <- 1 to tableNamesArray.length - 1) {
+          var tableName = tableNamesArray(i)
+          var tableData = dataMap.get(tableName)
+          if (tableData != null && !tableData.isEmpty) { // 说明存在子表
+            val tableMapData = tableData.get
+            var jsonMapSubTable = tableMapData.asInstanceOf[Map[String, String]]
+            jsonMapSubTable += ("database" -> database.toString)
+            jsonMapSubTable += ("uuId" -> uuId.toString)
+            jsonMapSubTable += ("msgId" -> msgId.toString)
+            jsonMapSubTable += ("dataVer" -> dataVer.toString)
+            jsonMapSubTable += ("dataStamp" -> dataStamp.toString)
+            list.+=(new Tuple2(dbType + keySplitChar + database + keySplitChar + tableName, jsonMapSubTable))
+          }
+        }
+
+        var tablelist = tableNamesArray.toList
+        var newDataMap = dataMap.filter(line => !tablelist.contains(line._1)).asInstanceOf[Map[String, String]]
+        newDataMap += ("database" -> database.toString)
+        newDataMap += ("uuId" -> uuId.toString)
+        newDataMap += ("msgId" -> msgId.toString)
+        newDataMap += ("dataVer" -> dataVer.toString)
+        newDataMap += ("dataStamp" -> dataStamp.toString)
+        list.+=(new Tuple2(dbType + keySplitChar + database + keySplitChar + tableNamesArray(0), newDataMap))
+      }
+      list
+    } catch {
+      case e: Exception =>
+        log.error("不是json格式！", e)
+        list
+    }
+    list
+  }
 
   /**
     * createKeyMapIteratorAndParentConfigMap

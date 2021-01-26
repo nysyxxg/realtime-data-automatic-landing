@@ -82,7 +82,7 @@ object SparkEngineDriver {
     var database = keyArray(1)
     //判断数据库是否存在
     var output = if ("hive".equalsIgnoreCase(dbType)) {
-      log.info(s"hive库名是【$database】,数据存入Hive.")
+      log.info(s"数据开始写入.....Hive.............................." + database)
       new LandingToHive(groupId, hiveDbName, hiveFilterTables)
     } else if ("mysql".equalsIgnoreCase(dbType)) {
       log.info(s"数据开始写入.....Mysql............................." + database)
@@ -102,6 +102,37 @@ object SparkEngineDriver {
   }
 
 
+  def processEveryLineV1(key: String, records: Iterable[Map[String, String]], spark: SparkSession,
+                         hiveDbName: String, groupId: String, dbConfigfile: File, hiveFilterTables: Set[String]) = {
+    var keyArray = key.split("##")
+    var dbType = keyArray(0)
+    var database = keyArray(1)
+    var tableName = keyArray(2)
+    //判断数据库是否存在
+    var output = if ("hive".equalsIgnoreCase(dbType)) {
+      log.info(s"数据开始写入.....Hive.............................." + database)
+      new LandingToHive(groupId, hiveDbName, hiveFilterTables)
+    } else if ("mysql".equalsIgnoreCase(dbType)) {
+      log.info(s"数据开始写入.....Mysql............................." + database)
+      new LandToMySQL(groupId, dbConfigfile)
+    } else if ("hbase".equalsIgnoreCase(dbType)) {
+      log.info(s"数据开始写入.....Hbase............................." + database)
+      new LandToHbase(groupId, dbConfigfile)
+    } else {
+      log.info(s"数据开始写入.....日志文件............................." + database)
+      new LandToLogInfo(dbConfigfile)
+    }
+    // 开始对一个表的数据进行写入
+    log.info("-------------数据写入表：" + tableName)
+    records.foreach(list => {
+      if (!list.isEmpty) {
+        println("----------------------------------");
+        output.writeRDD(list, spark, hiveFilterTables)
+      }
+    })
+  }
+
+
   def processJsonData(value: ConsumerRecord[String, String]): Tuple2[String, Seq[(String, Map[String, String])]] = {
     var jsonMap: Map[String, Any] = JsonUtils.toObject(value.value, new TypeReference[Map[String, Any]] {})
     var dbType = jsonMap.getOrElse("dbType", "").asInstanceOf[String]
@@ -115,6 +146,19 @@ object SparkEngineDriver {
         Seq.empty
     }
     (dbType + "_" + database, data)
+  }
+
+  def processJsonDataV1(value: ConsumerRecord[String, String]): Seq[(String, Map[String, String])] = {
+    var jsonMap: Map[String, Any] = JsonUtils.toObject(value.value, new TypeReference[Map[String, Any]] {})
+    // 处理每条数据
+    var data = try {
+      ReaderJsonData.readRecordV1(jsonMap)
+    } catch {
+      case _: Exception =>
+        log.info("错误数据，无法解析--->" + value.value)
+        Seq.empty
+    }
+    data
   }
 
   def main(args: Array[String]) {
@@ -218,58 +262,61 @@ object SparkEngineDriver {
       dStream.checkpoint(Minutes(1))
     }
 
-
     dStream.foreachRDD(rdd => {
-      // 获取这个RDD的offset范围
-      val offsetRanges: Array[OffsetRange] = rdd.asInstanceOf[HasOffsetRanges].offsetRanges
-      var bl = true
-      try {
-        // 1：直接处理rdd -- 进行转化
-        val keyValueRdd = rdd.map(processJsonData(_))
-        // 2：处理一个分区的数据
-        // 按数据库分组聚合
-        keyValueRdd.groupByKey().foreachPartition(partition => {
-          if (!partition.isEmpty) {
+      if (!rdd.isEmpty) {
+        // 获取这个RDD的offset范围
+        val offsetRanges: Array[OffsetRange] = rdd.asInstanceOf[HasOffsetRanges].offsetRanges
+        var bl = true
+        try {
+          // 1：直接处理rdd -- 进行转化
+          // 2-1 ：处理一个分区的数据, 按数据库类型 和 数据库分组聚合
+          //          val keyValueRdd = rdd.map(processJsonData(_))
+          //          keyValueRdd.groupByKey().foreachPartition(partition => {
+          //            if (!partition.isEmpty) {
+          //              partition.foreach(iter => {
+          //                var key = iter._1
+          //                var values = iter._2
+          //                processEveryLine(key, values, spark, hiveDbName, groupId, dbConfigfile, hiveFilterTables)
+          //              })
+          //            }
+          // 2-2 ：处理一个分区的数据,按照数据库类型，数据库名和表名称进行分组
+          val keyValueRdd = rdd.map(processJsonDataV1(_))
+          keyValueRdd.flatMap(data => data).map(line => (line._1, line._2)).groupByKey().foreachPartition(partition => {
             partition.foreach(iter => {
               var key = iter._1
               var values = iter._2
-              processEveryLine(key, values, spark, hiveDbName, groupId, dbConfigfile, hiveFilterTables)
+              processEveryLineV1(key, values, spark, hiveDbName, groupId, dbConfigfile, hiveFilterTables)
             })
+          })
+
+          if (StringUtils.isNotBlank(errorDataPath)) {
+            log.info(s"输出错误数据到$errorDataPath")
+            if (keyValueRdd.isEmpty()) { // 说明json解析错误
+              if (!rdd.isEmpty()) {
+                rdd.saveAsTextFile(errorDataPath + "/error")
+              }
+            }
           }
-        })
-      } catch {
-        case ex: Exception =>
-          log.error(ex.getMessage, ex)
-          ex.printStackTrace()
-          bl = false
-      } finally {
-        if (bl) {
-          for (o <- offsetRanges) {
-            println(s"topic=${o.topic},partition=${o.partition},fromOffset=${o.fromOffset},untilOffset=${o.untilOffset}")
+        } catch {
+          case ex: Exception =>
+            log.error(ex.getMessage, ex)
+            ex.printStackTrace()
+            bl = false
+        } finally {
+          if (bl) {
+            for (o <- offsetRanges) {
+              println(s"topic=${o.topic},partition=${o.partition},fromOffset=${o.fromOffset},untilOffset=${o.untilOffset}")
+            }
+            //手动提交offset,默认提交到Checkpoint中
+            //recordDStream.asInstanceOf[CanCommitOffsets].commitAsync(offsetRanges)
+            var jdbc = connectInfoBC.value
+            KafkaOffsetUtil.saveOffsetRanges(jdbc._1, jdbc._2, jdbc._3, groupIdBC.value, offsetRanges)
+            //该RDD 异步提交
+            dStream.asInstanceOf[CanCommitOffsets].commitAsync(offsetRanges)
           }
-          //手动提交offset,默认提交到Checkpoint中
-          //recordDStream.asInstanceOf[CanCommitOffsets].commitAsync(offsetRanges)
-          var jdbc = connectInfoBC.value
-          KafkaOffsetUtil.saveOffsetRanges(jdbc._1, jdbc._2, jdbc._3, groupIdBC.value, offsetRanges)
-          //该RDD 异步提交
-          dStream.asInstanceOf[CanCommitOffsets].commitAsync(offsetRanges)
         }
       }
     })
-
-    //    val kafkaDStream = dStream.map(value => {
-    //      var data =
-    //        try {
-    //          ReaderJsonData.readRecord(value.value)
-    //        } catch {
-    //          case _: Exception => Seq.empty
-    //        }
-    //      (data, value.value)
-    //    })
-    //    if (StringUtils.isNotBlank(errorDataPath)) {
-    //      log.info(s"输出错误数据到$errorDataPath")
-    //      kafkaDStream.filter(_._1.isEmpty).map(_._2).saveAsTextFiles(errorDataPath + "/error", "txt")
-    //    }
 
     streamingContext.start
 

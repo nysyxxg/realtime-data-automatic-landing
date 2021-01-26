@@ -112,12 +112,17 @@ class LandingToHive(groupId: String, hiveDbName: String, filterTables: Set[Strin
 
   override def writeRDD(rddData: List[Seq[(String, Map[String, String])]], spark: SparkSession, filterTables: Set[String]): Unit ={
 
-
   }
 
   override def writeRDD(rddData:Seq[(String, Map[String, String])], spark: SparkSession, filterTables: Set[String]): Unit ={
     rddData.foreach(line => {
       print(line._1 + "----->" + line._2)
+    })
+  }
+
+  override def writeRDD(rddData: Map[String, String], spark: SparkSession, filterTables: Set[String]): Unit = {
+    rddData.map(value => {
+      println("key=" + value._1 + "\t  value= " + value._2.toString)
     })
   }
 

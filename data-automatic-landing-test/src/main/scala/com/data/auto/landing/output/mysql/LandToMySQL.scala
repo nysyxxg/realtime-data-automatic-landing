@@ -315,4 +315,10 @@ class LandToMySQL(groupId: String, propertiesFile: File) extends LandOutputTrait
       println("------------------------------------------------------")
     })
   }
+
+  override def writeRDD(rddData: Map[String, String], spark: SparkSession, filterTables: Set[String]): Unit = {
+    rddData.map(value => {
+      println("key=" + value._1 + "\t  value= " + value._2.toString)
+    })
+  }
 }
