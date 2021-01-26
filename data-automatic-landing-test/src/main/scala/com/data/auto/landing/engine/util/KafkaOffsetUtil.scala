@@ -21,7 +21,7 @@ object KafkaOffsetUtil {
     var rs: ResultSet = null
     try {
       connection = DriverManager.getConnection(url, userName, password)
-      pstmt = connection.prepareStatement("select topic,partitions,untilOffset from eip_ods_kafka_offset where groupid=? and topic=?")
+      pstmt = connection.prepareStatement("select topic,partitions,untilOffset from kafka_offset where groupid=? and topic=?")
       pstmt.setString(1, groupid)
       pstmt.setString(2, topic)
       rs = pstmt.executeQuery()
@@ -57,7 +57,7 @@ object KafkaOffsetUtil {
     try {
       connection = DriverManager.getConnection(url, userName, password)
       //replace into表示之前有就替换,没有就插入
-      pstmt = connection.prepareStatement("replace into eip_ods_kafka_offset (`topic`, `partitions`, `groupid`, `fromOffset`, `untilOffset`) values(?,?,?,?,?)")
+      pstmt = connection.prepareStatement("replace into kafka_offset (`topic`, `partitions`, `groupid`, `fromOffset`, `untilOffset`) values(?,?,?,?,?)")
       for (o <- offsetRange) {
         pstmt.setString(1, o.topic)
         pstmt.setInt(2, o.partition)

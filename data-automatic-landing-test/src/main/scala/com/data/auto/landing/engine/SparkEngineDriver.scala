@@ -30,6 +30,8 @@ import com.data.auto.landing.output.log.LandToLogInfo
 import com.data.auto.landing.parsing.jsondata.ReaderJsonData
 import com.data.auto.landing.table.metadata.store.MetaDataStore
 
+import scala.collection.mutable.ListBuffer
+
 object SparkEngineDriver {
 
   private val BOOTSTRAP_SERVER = ("bootstrapServers", s"${ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG},半角逗号【,】隔开")
@@ -73,44 +75,46 @@ object SparkEngineDriver {
     recordDStream
   }
 
-  def processEveryLine(value: ConsumerRecord[String, String], spark: SparkSession,
+  def processEveryLine(key: String, records: Iterable[Seq[(String, Map[String, String])]], spark: SparkSession,
                        hiveDbName: String, groupId: String, dbConfigfile: File, hiveFilterTables: Set[String]) = {
+    var keyArray = key.split("_")
+    var dbType = keyArray(0)
+    var database = keyArray(1)
+    //判断数据库是否存在
+    var output = if ("hive".equalsIgnoreCase(dbType)) {
+      log.info(s"hive库名是【$database】,数据存入Hive.")
+      new LandingToHive(groupId, hiveDbName, hiveFilterTables)
+    } else if ("mysql".equalsIgnoreCase(dbType)) {
+      log.info(s"数据开始写入.....Mysql............................." + database)
+      new LandToMySQL(groupId, dbConfigfile)
+    } else if ("hbase".equalsIgnoreCase(dbType)) {
+      log.info(s"数据开始写入.....Hbase............................." + database)
+      new LandToHbase(groupId, dbConfigfile)
+    } else {
+      log.info(s"数据开始写入.....日志文件............................." + database)
+      new LandToLogInfo(dbConfigfile)
+    }
+    records.foreach(list => {
+      if (!list.isEmpty) {
+        output.writeRDD(list, spark, hiveFilterTables)
+      }
+    })
+  }
 
+
+  def processJsonData(value: ConsumerRecord[String, String]): Tuple2[String, Seq[(String, Map[String, String])]] = {
     var jsonMap: Map[String, Any] = JsonUtils.toObject(value.value, new TypeReference[Map[String, Any]] {})
     var dbType = jsonMap.getOrElse("dbType", "").asInstanceOf[String]
-    var database = jsonMap.getOrElse("database", "")
+    var database = jsonMap.getOrElse("database", "").asInstanceOf[String]
     // 处理每条数据
     var data = try {
       ReaderJsonData.readRecord(jsonMap)
     } catch {
-      case _: Exception => Seq.empty
+      case _: Exception =>
+        log.info("错误数据，无法解析--->" + value.value)
+        Seq.empty
     }
-    if (!data.isEmpty) {
-      var output = if ("hive".equalsIgnoreCase(dbType)) {
-        log.info(s"hive库名是【$database】,数据存入Hive.")
-        new LandingToHive(groupId, hiveDbName, hiveFilterTables)
-      } else if ("mysql".equalsIgnoreCase(dbType)) {
-        log.info(s"数据开始写入.....Mysql............................." + database)
-        new LandToMySQL(groupId, dbConfigfile)
-      } else if ("hbase".equalsIgnoreCase(dbType)) {
-        log.info(s"数据开始写入.....Hbase............................." + database)
-        new LandToHbase(groupId, dbConfigfile)
-      } else {
-        log.info(s"数据开始写入.....日志文件............................." + database)
-        new LandToLogInfo(dbConfigfile)
-      }
-      output.writeRDD(data, spark, hiveFilterTables)
-
-
-      //      log.info(s"输出库中表的数量是${MetaDataStore.getMetaDataInfo.size}.")
-      //      MetaDataStore.getMetaDataInfo.foreach {
-      //        case (tableName, colList) => log.info(s"【$tableName】的列【${colList.mkString(", ")}】")
-      //      }
-
-    } else {
-      log.info("错误数据，无法解析--->" + value.value)
-    }
-
+    (dbType + "_" + database, data)
   }
 
   def main(args: Array[String]) {
@@ -220,11 +224,17 @@ object SparkEngineDriver {
       val offsetRanges: Array[OffsetRange] = rdd.asInstanceOf[HasOffsetRanges].offsetRanges
       var bl = true
       try {
-        // 1：直接处理rdd
+        // 1：直接处理rdd -- 进行转化
+        val keyValueRdd = rdd.map(processJsonData(_))
         // 2：处理一个分区的数据
-        rdd.foreachPartition(partition => {
+        // 按数据库分组聚合
+        keyValueRdd.groupByKey().foreachPartition(partition => {
           if (!partition.isEmpty) {
-            partition.foreach(processEveryLine(_, spark, hiveDbName, groupId, dbConfigfile, hiveFilterTables))
+            partition.foreach(iter => {
+              var key = iter._1
+              var values = iter._2
+              processEveryLine(key, values, spark, hiveDbName, groupId, dbConfigfile, hiveFilterTables)
+            })
           }
         })
       } catch {

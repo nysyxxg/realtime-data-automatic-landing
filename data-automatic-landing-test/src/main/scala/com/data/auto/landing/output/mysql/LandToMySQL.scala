@@ -304,12 +304,15 @@ class LandToMySQL(groupId: String, propertiesFile: File) extends LandOutputTrait
   }
 
   override def writeRDD(rddData: Seq[(String, Map[String, String])], spark: SparkSession, filterTables: Set[String]): Unit = {
-    rddData.foreach(line => {
+    // 按照表名对数据进行分区
+    var  tableRDD = rddData.groupBy(_._1)
+    tableRDD.foreach(line => {
       println("表名+ " + line._1)
       var data = line._2
       data.map(value => {
         println("key=" + value._1 + "\t  value= " + value._2.toString)
       })
+      println("------------------------------------------------------")
     })
   }
 }
