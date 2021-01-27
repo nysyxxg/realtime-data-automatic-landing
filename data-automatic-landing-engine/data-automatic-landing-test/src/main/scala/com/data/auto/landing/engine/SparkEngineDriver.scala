@@ -30,7 +30,6 @@ import com.data.auto.landing.parsing.jsondata.ReaderJsonData
 import com.data.auto.landing.util.{JsonUtils, KafkaOffsetUtil, SqlUtil}
 
 import scala.collection.convert.WrapAsJava
-import scala.collection.convert.WrapAsScala.collectionAsScalaIterable
 import scala.collection.mutable.ListBuffer
 
 object SparkEngineDriver {
@@ -242,7 +241,7 @@ object SparkEngineDriver {
     sparkConf.set("spark.streaming.backpressure.enabled", "true")
     sparkConf.set("spark.streaming.backpressure.initialRate", "1000")
     sparkConf.set("spark.streaming.kafka.maxRatePerPartition", "1000")
-    sparkConf.set("spark.files", "D://data-atuo-landing//realtime-data-automatic-landing//data-automatic-landing-test//src//main//resources//database.properties");
+    sparkConf.set("spark.files", "database.properties");
 
     val dbConfigfile = getPropFileFromSparkConf(sparkConf, "database.properties")
     val properties = getProperties(dbConfigfile)
@@ -351,7 +350,8 @@ object SparkEngineDriver {
   private def getPropFileFromSparkConf(sparkConf: SparkConf, fileName: String): File = {
     val master = sparkConf.get("spark.master")
     val propFile = if (master.startsWith("local")) {
-      getPropFile(sparkConf.get("spark.files"), fileName, _.getRawPath)
+      var filePath = sparkConf.get("spark.files")
+      getPropFile(filePath, fileName, _.getRawPath)
     } else if (master.equals("yarn")) {
       sparkConf.get("spark.submit.deployMode") match {
         case "client" => getPropFileAtYarn(sparkConf.get("spark.yarn.dist.files"), fileName, _.getRawPath)
@@ -373,7 +373,11 @@ object SparkEngineDriver {
         file.canRead && file.getName.equalsIgnoreCase(fileName)
     }
     if (propFileOpt.isEmpty) {
-      throw new RuntimeException
+      var path = this.getClass().getClassLoader().getResource(fileName).getPath
+      if(path.isEmpty){
+        throw new RuntimeException("配置文件是空的，请检查文件路径....." + path)
+      }
+      new File(path)
     } else {
       new File(propFileOpt.get)
     }
