@@ -12,6 +12,7 @@
     <artifactId>data-automatic-landing-engine</artifactId>
     <packaging>pom</packaging>
     <modules>
+        <module>data-automatic-landing-test</module>
         <module>data-automatic-landing-spark</module>
         <module>data-automatic-landing-flink</module>
         <module>data-automatic-landing-kafkastream</module>

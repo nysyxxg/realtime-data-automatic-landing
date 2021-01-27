@@ -13,7 +13,7 @@
     <properties>
         <mysql.version>8.0.21</mysql.version>
         <commons-lang3.version>3.5</commons-lang3.version>
-        <jackson.version>2.6.7.3</jackson.version>
+        <jackson.version>2.6.7.1</jackson.version>
         <jackson-bom.version>${jackson.version}</jackson-bom.version>
         <guava.version>14.0.1</guava.version>
         <scala.base.version>2.11</scala.base.version>
@@ -28,13 +28,14 @@
     </properties>
 
     <modules>
+        <module>data-automatic-landing-driver</module>
+        <module>data-automatic-landing-engine</module>
+        <module>data-automatic-landing-parsing</module>
+        <module>data-automatic-landing-schema</module>
         <module>data-automatic-landing-desensitive-sdk</module>
         <module>data-automatic-landing-common</module>
-        <module>data-automatic-landing-config</module>
-        <module>data-automatic-landing-schema</module>
-        <module>data-automatic-landing-driver</module>
-        <module>data-automatic-landing-test</module>
-        <module>data-automatic-landing-engine</module>
+        <module>data-automatic-landing-util</module>
+        <module>data-automatic-landing-output</module>
     </modules>
 
 
@@ -180,6 +181,19 @@
                 <version>${kafka.version}</version>
             </dependency>
 
+
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-databind</artifactId>
+                <version>${jackson.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.fasterxml.jackson.module</groupId>
+                <artifactId>jackson-module-scala_${scala.base.version}</artifactId>
+                <version>${jackson.version}</version>
+            </dependency>
+
         </dependencies>
 
 
@@ -216,6 +230,48 @@
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-engine</artifactId>
             <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <scope>${usable.environment.scope}</scope>
+        </dependency>
+
+
+        <dependency>
+            <groupId>org.apache.kafka</groupId>
+            <artifactId>kafka_${scala.base.version}</artifactId>
+            <scope>${usable.environment.scope}</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>log4j</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-log4j12</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.kafka</groupId>
+            <artifactId>kafka-clients</artifactId>
+            <scope>${usable.environment.scope}</scope>
+        </dependency>
+
+
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <scope>${usable.environment.scope}</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fasterxml.jackson.module</groupId>
+            <artifactId>jackson-module-scala_${scala.base.version}</artifactId>
+            <scope>${usable.environment.scope}</scope>
         </dependency>
 
     </dependencies>
