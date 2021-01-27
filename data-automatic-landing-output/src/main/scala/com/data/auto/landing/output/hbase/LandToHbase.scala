@@ -1,6 +1,7 @@
 package com.data.auto.landing.output.hbase
 
 import java.io.File
+import java.sql.Connection
 
 import com.data.auto.landing.output.LandOutputTrait
 import com.data.auto.landing.schema.metadata.store.MetaDataStore.MetaInfo
@@ -35,7 +36,7 @@ class LandToHbase(groupId: String, dbConfigfile: File) extends LandOutputTrait w
     })
   }
 
-  override def createTable(createTableSql: String): Unit = ???
+  override def createTable(conn: Connection,createTableSql: String): Unit = ???
 
-  override def createDataBase(createDataBaseSql: String): Unit = ???
+  override def createDataBase(conn: Connection,createDataBaseSql: String): Unit = ???
 }

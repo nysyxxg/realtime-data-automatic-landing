@@ -213,13 +213,13 @@
             <version>${scala.version}</version>
             <scope>${usable.environment.scope}</scope>
         </dependency>
-        <!-- 以下测试用 -->
+
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-simple</artifactId>
-            <!--<scope>${unusable.environment.scope}</scope>-->
         </dependency>
 
+        <!-- 以下测试用 -->
         <dependency>
             <groupId>org.junit.platform</groupId>
             <artifactId>junit-platform-launcher</artifactId>

@@ -2,6 +2,7 @@ package com.data.auto.landing.engine
 
 import java.io.File
 import java.net.URI
+import java.sql.Connection
 import java.text.SimpleDateFormat
 import java.util.{Date, Properties}
 
@@ -15,7 +16,7 @@ import org.apache.kafka.clients.consumer.{ConsumerConfig, ConsumerRecord}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.{Row, SaveMode, SparkSession}
 import org.apache.spark.streaming.dstream.InputDStream
 import org.apache.spark.streaming.kafka010._
 import org.apache.spark.streaming.{Minutes, Seconds, StreamingContext, StreamingContextState}
@@ -27,7 +28,8 @@ import com.data.auto.landing.common.jdk7.ScalaAutoCloseable.wrapAsScalaAutoClose
 import com.data.auto.landing.output.hbase.LandToHbase
 import com.data.auto.landing.output.log.LandToLogInfo
 import com.data.auto.landing.parsing.jsondata.ReaderJsonData
-import com.data.auto.landing.util.{JsonUtils, KafkaOffsetUtil, SqlUtil}
+import com.data.auto.landing.util._
+import org.apache.spark.sql.types.{LongType, StringType, StructField, StructType}
 
 import scala.collection.convert.WrapAsJava
 import scala.collection.mutable.ListBuffer
@@ -81,10 +83,10 @@ object SparkEngineDriver {
     //判断数据库是否存在
     val output = if ("hive".equalsIgnoreCase(dbType)) {
       log.info(s"数据开始写入.....Hive.............................." + database)
-      new LandingToHive(spark,groupId, database,"", hiveFilterTables)
+      new LandingToHive(spark, groupId, database, "", hiveFilterTables)
     } else if ("mysql".equalsIgnoreCase(dbType)) {
       log.info(s"数据开始写入.....Mysql............................." + database)
-      new LandToMySQL(database,"",groupId, dbConfigfile)
+      LandToMySQL.getInstance(database, "", groupId, dbConfigfile)
     } else if ("hbase".equalsIgnoreCase(dbType)) {
       log.info(s"数据开始写入.....Hbase............................." + database)
       new LandToHbase(groupId, dbConfigfile)
@@ -106,38 +108,67 @@ object SparkEngineDriver {
     val dbType = keyArray(0)
     val dataBaseName = keyArray(1)
     val tableName = keyArray(2)
-    var createDataBaseSql = ""
-
     //判断数据库是否存在
     val output = if ("hive".equalsIgnoreCase(dbType)) {
-      log.info(s"数据开始写入.....Hive.............................." + dataBaseName)
+      log.info(s"数据开始写入.....Hive................................." + dataBaseName)
       println("---->" + spark)
       new LandingToHive(spark, groupId, dataBaseName, tableName, hiveFilterTables)
     } else if ("mysql".equalsIgnoreCase(dbType)) {
-      log.info(s"数据开始写入.....Mysql............................." + dataBaseName)
-      new LandToMySQL(dataBaseName, tableName, groupId, dbConfigfile)
+      log.info(s"数据开始写入.....Mysql..............................." + dataBaseName)
+      LandToMySQL.getInstance(dataBaseName, tableName, groupId, dbConfigfile)
     } else if ("hbase".equalsIgnoreCase(dbType)) {
-      log.info(s"数据开始写入.....Hbase............................." + dataBaseName)
+      log.info(s"数据开始写入.....Hbase................................" + dataBaseName)
       new LandToHbase(groupId, dbConfigfile)
     } else {
       log.info(s"数据开始写入.....日志文件............................." + dataBaseName)
       new LandToLogInfo(dbConfigfile)
     }
+
+    var properties = PropertiesUtil.getProperties(dbConfigfile)
+    val connectInfo = (properties.getProperty("driver"),properties.getProperty("url"), properties.getProperty("username"), properties.getProperty("password"), properties.getProperty("dataBaseName"))
+    var connect: Connection = DBConnUtil.getConnection(properties.getProperty("driver"), properties.getProperty("url"), properties.getProperty("username"), properties.getProperty("password"))
     // 创建数据库
-    createDataBaseSql = SqlUtil.getCreateDataBaseSql(dbType,dataBaseName)
-    output.createDataBase(createDataBaseSql)
+    var createDataBaseSql  = SqlUtil.getCreateDataBaseSql(dbType, dataBaseName)
+    output.createDataBase(connect, createDataBaseSql)
+    DBConnUtil.closeConnection(connect)
+    // 替换 为新的 数据库
+    val url = connectInfo._1.replace(connectInfo._4, dataBaseName)
+    var newConnect: Connection = DBConnUtil.getConnection(connectInfo._1, url, connectInfo._3, connectInfo._4)
 
     // 开始对一个表的数据进行写入
-    log.info("-------------数据写入表：" + tableName)
-    records.foreach(dataVal => {
+    log.info("-------------数据写入表：" + tableName + "----数据记录数： " + records.size)
+    records.foreach(dataVal => { // 处理每一行数据
       if (!dataVal.isEmpty) {
         println("----------------------------------");
-        val fieldList = dataVal.map(_._1).toList
-        var createTableSql = SqlUtil.getCreateTableSql(dbType,tableName,WrapAsJava.seqAsJavaList(fieldList))
-        output.createTable(createTableSql)
-        output.writeRDD(dataVal, spark, hiveFilterTables)
+        var sortedMap = dataVal.toList.sortBy(_._1)  // 对map的key进行排序
+        sortedMap.map(value => {
+          println("field = " + value._1 + "\t  data= " + value._2)
+        })
+
+        var columnList = new ListBuffer[StructField]
+        val fieldList = sortedMap.map(_._1)//获取字段
+        fieldList.foreach(field=>{
+          columnList.+=( StructField(field,StringType,true))
+        })
+        val schema = StructType{columnList}
+
+//        var createTableSql = SqlUtil.getCreateTableSql(dbType, tableName, WrapAsJava.seqAsJavaList(fieldList))
+//        output.createTable(newConnect, createTableSql)
+        val dataList = sortedMap.map(_._2)
+        var  list = new ListBuffer[Row]
+        list.+=(Row(dataList.mkString(",")))
+        val rdd2 = spark .sparkContext.makeRDD(list)
+        // 使用Spark写入
+        val dataFrame = spark.createDataFrame(rdd2,schema)
+        val prop = new Properties()
+        prop.put("user",connectInfo._3)
+        prop.put("password",connectInfo._4)
+        dataFrame.write.mode(SaveMode.Overwrite).jdbc(url,tableName,prop)
       }
     })
+
+    DBConnUtil.closeConnection(newConnect)
+
   }
 
 
@@ -374,7 +405,7 @@ object SparkEngineDriver {
     }
     if (propFileOpt.isEmpty) {
       var path = this.getClass().getClassLoader().getResource(fileName).getPath
-      if(path.isEmpty){
+      if (path.isEmpty) {
         throw new RuntimeException("配置文件是空的，请检查文件路径....." + path)
       }
       new File(path)

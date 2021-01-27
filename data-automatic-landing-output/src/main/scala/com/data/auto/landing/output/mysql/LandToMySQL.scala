@@ -1,7 +1,7 @@
 package com.data.auto.landing.output.mysql
 
 import java.io.File
-import java.sql.{DriverManager, ResultSet}
+import java.sql.{Connection, DriverManager, ResultSet}
 import java.util.Properties
 
 import com.data.auto.landing.common.jdk7.ScalaAutoCloseable.wrapAsScalaAutoCloseable
@@ -19,7 +19,20 @@ import org.slf4j.LoggerFactory
 
 import scala.io.Source
 
-class LandToMySQL  (dataBaseName: String, tableName: String, groupId: String, propertiesFile: File) extends LandOutputTrait with Serializable {
+object LandToMySQL {
+
+  // 私有化方法
+  private def getLandToMySQL(dataBaseName: String, tableName: String, groupId: String, propertiesFile: File)
+  = new LandToMySQL(dataBaseName, tableName, groupId, propertiesFile)
+
+  // 公有方法
+  def getInstance(dataBaseName: String, tableName: String, groupId: String, propertiesFile: File): LandToMySQL = {
+    var landToMySQL = this.getLandToMySQL(dataBaseName, tableName, groupId, propertiesFile)
+    return landToMySQL
+  }
+}
+
+class LandToMySQL private(dataBaseName: String, tableName: String, groupId: String, propertiesFile: File) extends LandOutputTrait with Serializable {
 
   private val log = LoggerFactory.getLogger(getClass)
 
@@ -29,28 +42,23 @@ class LandToMySQL  (dataBaseName: String, tableName: String, groupId: String, pr
     propertiesTmp
   }
 
-  private val connectInfo = (properties.getProperty("url"), properties.getProperty("username"), properties.getProperty("password"),properties.getProperty("dataBaseName"))
+  private val connectInfo = (properties.getProperty("url"), properties.getProperty("username"), properties.getProperty("password"), properties.getProperty("dataBaseName"))
 
 
-  override def createDataBase(createDataBaseSql:String): Unit = this.synchronized {
-    val conn = DriverManager.getConnection(connectInfo._1, connectInfo._2, connectInfo._3)
+  override def createDataBase(conn: Connection,createDataBaseSql: String): Unit = this.synchronized {
     val stat = conn.createStatement
     //创建数据库hello
     stat.executeUpdate(createDataBaseSql)
     stat.close
-    conn.close()
   }
 
-  override def createTable(createTableSql:String): Unit = this.synchronized {
-    val url = connectInfo._1.replace(connectInfo._4, dataBaseName);
-    val conn = DriverManager.getConnection(url, connectInfo._2, connectInfo._3)
+  override def createTable(conn: Connection,createTableSql: String): Unit = this.synchronized {
     val stat = conn.createStatement()
     stat.executeUpdate(createTableSql);
+    stat.close
   }
 
-
   override def getMeta: MetaDataStore.MetaInfo = {
-
     Class.forName(properties.getProperty("driver"))
     val dbName = Option(StringUtils.trimToNull(StringUtils.substringAfterLast(StringUtils.substringBefore(connectInfo._1, "?"), "/"))).getOrElse("default")
     val resultMap = DriverManager.getConnection(connectInfo._1, connectInfo._2, connectInfo._3).use {
@@ -171,7 +179,7 @@ class LandToMySQL  (dataBaseName: String, tableName: String, groupId: String, pr
           //手动提交offset,默认提交到Checkpoint中
           //recordDStream.asInstanceOf[CanCommitOffsets].commitAsync(offsetRanges)
           var jdbc = connectInfoBC.value
-         // KafkaOffsetUtil.saveOffsetRanges(jdbc._1, jdbc._2, jdbc._3, groupIdBC.value, offsetRanges)
+          // KafkaOffsetUtil.saveOffsetRanges(jdbc._1, jdbc._2, jdbc._3, groupIdBC.value, offsetRanges)
         }
       }
     }
@@ -255,7 +263,6 @@ class LandToMySQL  (dataBaseName: String, tableName: String, groupId: String, pr
 
   }
 
-
   override def writeRDD(rddData: List[Seq[(String, Map[String, String])]], spark: SparkSession, filterTables: Set[String]) {
 
     val metaInfoBC = spark.sparkContext.broadcast(MetaDataStore.getMetaDataInfo)
@@ -338,4 +345,6 @@ class LandToMySQL  (dataBaseName: String, tableName: String, groupId: String, pr
       println("key=" + value._1 + "\t  value= " + value._2.toString)
     })
   }
+
+
 }

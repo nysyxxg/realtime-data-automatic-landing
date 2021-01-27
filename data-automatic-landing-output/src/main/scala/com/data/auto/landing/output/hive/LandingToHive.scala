@@ -1,5 +1,6 @@
 package com.data.auto.landing.output.hive
 
+import java.sql.Connection
 import java.time.format.DateTimeFormatter
 import java.time.{Instant, ZoneId}
 
@@ -22,11 +23,11 @@ import scala.collection.convert.WrapAsScala.collectionAsScalaIterable
 class LandingToHive  (spark: SparkSession, groupId: String, hiveDbName: String, tableName: String, filterTables: Set[String])
   extends LandOutputTrait with Serializable {
 
-  def createDataBase(createDataBaseSql:String): Unit = this.synchronized {
+  def createDataBase(conn: Connection,createDataBaseSql:String): Unit = this.synchronized {
     spark.sql(createDataBaseSql)
   }
 
-  override def createTable(createTableSql:String): Unit =this.synchronized {
+  override def createTable(conn: Connection,createTableSql:String): Unit =this.synchronized {
     spark.sql("create table if not exists " + tableName)
   }
 

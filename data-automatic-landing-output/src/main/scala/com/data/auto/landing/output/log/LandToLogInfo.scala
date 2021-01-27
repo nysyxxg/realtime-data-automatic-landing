@@ -1,6 +1,7 @@
 package com.data.auto.landing.output.log
 
 import java.io.File
+import java.sql.Connection
 
 import com.data.auto.landing.output.LandOutputTrait
 import com.data.auto.landing.schema.metadata.store.MetaDataStore.MetaInfo
@@ -33,7 +34,7 @@ class LandToLogInfo(dbConfigfile: File)extends LandOutputTrait with Serializable
     })
   }
 
-  override def createTable(createTableSql: String): Unit = ???
+  override def createTable(conn: Connection,createTableSql: String): Unit = ???
 
-  override def createDataBase(createDataBaseSql: String): Unit = ???
+  override def createDataBase(conn: Connection,createDataBaseSql: String): Unit = ???
 }
