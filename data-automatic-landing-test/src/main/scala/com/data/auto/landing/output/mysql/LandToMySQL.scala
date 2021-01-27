@@ -20,7 +20,7 @@ import org.slf4j.LoggerFactory
 
 import scala.io.Source
 
-class LandToMySQL(groupId: String, propertiesFile: File) extends LandOutputTrait with Serializable {
+class LandToMySQL  (dataBaseName: String, tableName: String, groupId: String, propertiesFile: File) extends LandOutputTrait with Serializable {
 
   private val log = LoggerFactory.getLogger(getClass)
 
@@ -30,7 +30,25 @@ class LandToMySQL(groupId: String, propertiesFile: File) extends LandOutputTrait
     propertiesTmp
   }
 
-  private val connectInfo = (properties.getProperty("url"), properties.getProperty("username"), properties.getProperty("password"))
+  private val connectInfo = (properties.getProperty("url"), properties.getProperty("username"), properties.getProperty("password"),properties.getProperty("dataBaseName"))
+
+
+  override def createDataBase(createDataBaseSql:String): Unit = this.synchronized {
+    val conn = DriverManager.getConnection(connectInfo._1, connectInfo._2, connectInfo._3)
+    val stat = conn.createStatement
+    //创建数据库hello
+    stat.executeUpdate(createDataBaseSql)
+    stat.close
+    conn.close()
+  }
+
+  override def createTable(createTableSql:String): Unit = this.synchronized {
+    val url = connectInfo._1.replace(connectInfo._4, dataBaseName);
+    val conn = DriverManager.getConnection(url, connectInfo._2, connectInfo._3)
+    val stat = conn.createStatement()
+    stat.executeUpdate(createTableSql);
+  }
+
 
   override def getMeta: MetaDataStore.MetaInfo = {
 
@@ -305,7 +323,7 @@ class LandToMySQL(groupId: String, propertiesFile: File) extends LandOutputTrait
 
   override def writeRDD(rddData: Seq[(String, Map[String, String])], spark: SparkSession, filterTables: Set[String]): Unit = {
     // 按照表名对数据进行分区
-    var  tableRDD = rddData.groupBy(_._1)
+    var tableRDD = rddData.groupBy(_._1)
     tableRDD.foreach(line => {
       println("表名+ " + line._1)
       var data = line._2

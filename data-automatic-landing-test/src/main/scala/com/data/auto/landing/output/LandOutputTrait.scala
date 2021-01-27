@@ -7,6 +7,9 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.streaming.dstream.DStream
 
 trait LandOutputTrait extends Serializable {
+  def createTable(createTableSql:String)
+
+  def createDataBase(createDataBaseSql:String)
 
   def getMeta: MetaDataStore.MetaInfo
 

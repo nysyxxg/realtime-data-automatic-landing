@@ -35,4 +35,7 @@ class LandToHbase(groupId: String, dbConfigfile: File) extends LandOutputTrait w
     })
   }
 
+  override def createTable(createTableSql: String): Unit = ???
+
+  override def createDataBase(createDataBaseSql: String): Unit = ???
 }

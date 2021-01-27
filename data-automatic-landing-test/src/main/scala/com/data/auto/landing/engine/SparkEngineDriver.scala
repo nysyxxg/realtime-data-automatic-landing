@@ -29,8 +29,10 @@ import com.data.auto.landing.common.jdk7.ScalaAutoCloseable.wrapAsScalaAutoClose
 import com.data.auto.landing.output.hbase.LandToHbase
 import com.data.auto.landing.output.log.LandToLogInfo
 import com.data.auto.landing.parsing.jsondata.ReaderJsonData
-import com.data.auto.landing.table.metadata.store.MetaDataStore
+import com.data.auto.landing.util.SqlUtil
 
+import scala.collection.convert.WrapAsJava
+import scala.collection.convert.WrapAsScala.collectionAsScalaIterable
 import scala.collection.mutable.ListBuffer
 
 object SparkEngineDriver {
@@ -76,16 +78,16 @@ object SparkEngineDriver {
 
   def processEveryLine(key: String, records: Iterable[Seq[(String, Map[String, String])]], spark: SparkSession,
                        hiveDbName: String, groupId: String, dbConfigfile: File, hiveFilterTables: Set[String]) = {
-    var keyArray = key.split("_")
-    var dbType = keyArray(0)
-    var database = keyArray(1)
+    val keyArray = key.split("_")
+    val dbType = keyArray(0)
+    val database = keyArray(1)
     //判断数据库是否存在
-    var output = if ("hive".equalsIgnoreCase(dbType)) {
+    val output = if ("hive".equalsIgnoreCase(dbType)) {
       log.info(s"数据开始写入.....Hive.............................." + database)
-      new LandingToHive(groupId, hiveDbName, hiveFilterTables)
+      new LandingToHive(spark,groupId, database,"", hiveFilterTables)
     } else if ("mysql".equalsIgnoreCase(dbType)) {
       log.info(s"数据开始写入.....Mysql............................." + database)
-      new LandToMySQL(groupId, dbConfigfile)
+      new LandToMySQL(database,"",groupId, dbConfigfile)
     } else if ("hbase".equalsIgnoreCase(dbType)) {
       log.info(s"数据开始写入.....Hbase............................." + database)
       new LandToHbase(groupId, dbConfigfile)
@@ -103,30 +105,40 @@ object SparkEngineDriver {
 
   def processEveryLineV1(key: String, records: Iterable[Map[String, String]], spark: SparkSession,
                          groupId: String, dbConfigfile: File, hiveFilterTables: Set[String]) = {
-    var keyArray = key.split("##")
-    var dbType = keyArray(0)
-    var database = keyArray(1)
-    var tableName = keyArray(2)
+    val keyArray = key.split("##")
+    val dbType = keyArray(0)
+    val dataBaseName = keyArray(1)
+    val tableName = keyArray(2)
+    var createDataBaseSql = ""
+
     //判断数据库是否存在
-    var output = if ("hive".equalsIgnoreCase(dbType)) {
-      log.info(s"数据开始写入.....Hive.............................." + database)
-      new LandingToHive(groupId, database, hiveFilterTables)
+    val output = if ("hive".equalsIgnoreCase(dbType)) {
+      log.info(s"数据开始写入.....Hive.............................." + dataBaseName)
+      println("---->" + spark)
+      new LandingToHive(spark, groupId, dataBaseName, tableName, hiveFilterTables)
     } else if ("mysql".equalsIgnoreCase(dbType)) {
-      log.info(s"数据开始写入.....Mysql............................." + database)
-      new LandToMySQL(groupId, dbConfigfile)
+      log.info(s"数据开始写入.....Mysql............................." + dataBaseName)
+      new LandToMySQL(dataBaseName, tableName, groupId, dbConfigfile)
     } else if ("hbase".equalsIgnoreCase(dbType)) {
-      log.info(s"数据开始写入.....Hbase............................." + database)
+      log.info(s"数据开始写入.....Hbase............................." + dataBaseName)
       new LandToHbase(groupId, dbConfigfile)
     } else {
-      log.info(s"数据开始写入.....日志文件............................." + database)
+      log.info(s"数据开始写入.....日志文件............................." + dataBaseName)
       new LandToLogInfo(dbConfigfile)
     }
+    // 创建数据库
+    createDataBaseSql = SqlUtil.getCreateDataBaseSql(dbType,dataBaseName)
+    output.createDataBase(createDataBaseSql)
+
     // 开始对一个表的数据进行写入
     log.info("-------------数据写入表：" + tableName)
-    records.foreach(list => {
-      if (!list.isEmpty) {
+    records.foreach(dataVal => {
+      if (!dataVal.isEmpty) {
         println("----------------------------------");
-        output.writeRDD(list, spark, hiveFilterTables)
+        val fieldList = dataVal.map(_._1).toList
+        var createTableSql = SqlUtil.getCreateTableSql(dbType,tableName,WrapAsJava.seqAsJavaList(fieldList))
+        output.createTable(createTableSql)
+        output.writeRDD(dataVal, spark, hiveFilterTables)
       }
     })
   }
@@ -220,9 +232,9 @@ object SparkEngineDriver {
 
     val hiveFilterTables = StringUtils.split(commandLine.getOptionValue(HIVE_FILTER_TABLS._1, StringUtils.EMPTY), ',').toSet
 
-    val appName = s"Ods Loader: Kafka [ ${kafkaTopic.mkString(" ")} ] to my dataBase"
+    val appName = s"From Kafka [ ${kafkaTopic.mkString(" ")} ] To My DataBase"
 
-    val spark = SparkSession.builder.appName(appName).master("local[2]").enableHiveSupport.getOrCreate
+    val spark = SparkSession.builder.appName(appName).master("local[3]").enableHiveSupport.getOrCreate
 
     val fileSystem = FileSystem.get(spark.sparkContext.hadoopConfiguration)
     fileSystem.create(processFilePath).use(_ => Unit)
@@ -236,7 +248,7 @@ object SparkEngineDriver {
 
     val dbConfigfile = getPropFileFromSparkConf(sparkConf, "database.properties")
     val properties = getProperties(dbConfigfile)
-    val connectInfo = (properties.getProperty("url"), properties.getProperty("username"), properties.getProperty("password"))
+    val connectInfo = (properties.getProperty("url"), properties.getProperty("username"), properties.getProperty("password"), properties.getProperty("dataBaseName"))
 
     val kafkaParams = Map[String, Object](
       ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG -> bootstrapServers,
@@ -284,8 +296,8 @@ object SparkEngineDriver {
           val keyValueFilterRdd = keyValueRdd.filter(!_._1.equalsIgnoreCase("error"))
           keyValueFilterRdd.map(line => (line._1, line._2)).groupByKey().foreachPartition(partition => {
             partition.foreach(iter => {
-              var key = iter._1
-              var values = iter._2
+              val key = iter._1
+              val values = iter._2
               processEveryLineV1(key, values, spark, groupId, dbConfigfile, hiveFilterTables)
             })
           })

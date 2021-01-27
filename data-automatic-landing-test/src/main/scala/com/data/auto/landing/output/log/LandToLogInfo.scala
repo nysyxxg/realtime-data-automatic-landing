@@ -33,4 +33,7 @@ class LandToLogInfo(dbConfigfile: File)extends LandOutputTrait with Serializable
     })
   }
 
+  override def createTable(createTableSql: String): Unit = ???
+
+  override def createDataBase(createDataBaseSql: String): Unit = ???
 }

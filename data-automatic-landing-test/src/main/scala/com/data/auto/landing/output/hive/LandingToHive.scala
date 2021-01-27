@@ -19,7 +19,17 @@ import org.slf4j.LoggerFactory
 
 import scala.collection.convert.WrapAsScala.collectionAsScalaIterable
 
-class LandingToHive(groupId: String, hiveDbName: String, filterTables: Set[String]) extends LandOutputTrait with Serializable {
+class LandingToHive  (spark: SparkSession, groupId: String, hiveDbName: String, tableName: String, filterTables: Set[String])
+  extends LandOutputTrait with Serializable {
+
+  def createDataBase(createDataBaseSql:String): Unit = this.synchronized {
+    spark.sql(createDataBaseSql)
+  }
+
+  override def createTable(createTableSql:String): Unit =this.synchronized {
+    spark.sql("create table if not exists " + tableName)
+  }
+
 
   override def getMeta: MetaInfo = {
     val hiveMeta = new HiveMetaStoreClient(new HiveConf)
@@ -110,12 +120,11 @@ class LandingToHive(groupId: String, hiveDbName: String, filterTables: Set[Strin
     }
   }
 
-
-  override def writeRDD(rddData: List[Seq[(String, Map[String, String])]], spark: SparkSession, filterTables: Set[String]): Unit ={
+  override def writeRDD(rddData: List[Seq[(String, Map[String, String])]], spark: SparkSession, filterTables: Set[String]): Unit = {
 
   }
 
-  override def writeRDD(rddData:Seq[(String, Map[String, String])], spark: SparkSession, filterTables: Set[String]): Unit ={
+  override def writeRDD(rddData: Seq[(String, Map[String, String])], spark: SparkSession, filterTables: Set[String]): Unit = {
     rddData.foreach(line => {
       print(line._1 + "----->" + line._2)
     })
@@ -124,13 +133,14 @@ class LandingToHive(groupId: String, hiveDbName: String, filterTables: Set[Strin
   override def writeRDD(rddData: Map[String, String], spark: SparkSession, filterTables: Set[String]): Unit = {
     rddData.map(value => {
       var data = ""
-      if(value._2.isInstanceOf[Map[String,String]]){
+      if (value._2.isInstanceOf[Map[String, String]]) {
         data = JsonUtils.toJson(value._2)
-      }else{
+      } else {
         data = value._2
       }
       println("key=" + value._1 + "\t  data= " + data)
     })
   }
+
 
 }
