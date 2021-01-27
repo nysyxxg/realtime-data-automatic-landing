@@ -141,22 +141,28 @@ object SparkEngineDriver {
       if (!dataVal.isEmpty) {
         println("----------------------------------");
         var sortedMap = dataVal.toList.sortBy(_._1)  // 对map的key进行排序
+
         sortedMap.map(value => {
           println("field = " + value._1 + "\t  data= " + value._2)
         })
 
-        var columnList = new ListBuffer[StructField]
         val fieldList = sortedMap.map(_._1)//获取字段
+        //        var createTableSql = SqlUtil.getCreateTableSql(dbType, tableName, WrapAsJava.seqAsJavaList(fieldList))
+        //        output.createTable(newConnect, createTableSql)
+
+
+        var columnList = new ListBuffer[StructField]
         fieldList.foreach(field=>{
           columnList.+=( StructField(field,StringType,true))
         })
         val schema = StructType{columnList}
 
-//        var createTableSql = SqlUtil.getCreateTableSql(dbType, tableName, WrapAsJava.seqAsJavaList(fieldList))
-//        output.createTable(newConnect, createTableSql)
+
         val dataList = sortedMap.map(_._2)
         var  list = new ListBuffer[Row]
         list.+=(Row(dataList.mkString(",")))
+
+
         val rdd2 = spark .sparkContext.makeRDD(list)
         // 使用Spark写入
         val dataFrame = spark.createDataFrame(rdd2,schema)
