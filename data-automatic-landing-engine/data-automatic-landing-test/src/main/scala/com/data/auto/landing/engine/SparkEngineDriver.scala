@@ -123,58 +123,11 @@ object SparkEngineDriver {
       log.info(s"数据开始写入.....日志文件............................." + dataBaseName)
       new LandToLogInfo(dbConfigfile)
     }
-
-    var properties = PropertiesUtil.getProperties(dbConfigfile)
-    val connectInfo = (properties.getProperty("driver"),properties.getProperty("url"), properties.getProperty("username"), properties.getProperty("password"), properties.getProperty("dataBaseName"))
-    var connect: Connection = DBConnUtil.getConnection(properties.getProperty("driver"), properties.getProperty("url"), properties.getProperty("username"), properties.getProperty("password"))
     // 创建数据库
     var createDataBaseSql  = SqlUtil.getCreateDataBaseSql(dbType, dataBaseName)
-    output.createDataBase(connect, createDataBaseSql)
-    DBConnUtil.closeConnection(connect)
-    // 替换 为新的 数据库
-    val url = connectInfo._1.replace(connectInfo._4, dataBaseName)
-    var newConnect: Connection = DBConnUtil.getConnection(connectInfo._1, url, connectInfo._3, connectInfo._4)
+    output.createDataBase(createDataBaseSql)
 
-    // 开始对一个表的数据进行写入
-    log.info("-------------数据写入表：" + tableName + "----数据记录数： " + records.size)
-    records.foreach(dataVal => { // 处理每一行数据
-      if (!dataVal.isEmpty) {
-        println("----------------------------------");
-        var sortedMap = dataVal.toList.sortBy(_._1)  // 对map的key进行排序
-
-        sortedMap.map(value => {
-          println("field = " + value._1 + "\t  data= " + value._2)
-        })
-
-        val fieldList = sortedMap.map(_._1)//获取字段
-        //        var createTableSql = SqlUtil.getCreateTableSql(dbType, tableName, WrapAsJava.seqAsJavaList(fieldList))
-        //        output.createTable(newConnect, createTableSql)
-
-
-        var columnList = new ListBuffer[StructField]
-        fieldList.foreach(field=>{
-          columnList.+=( StructField(field,StringType,true))
-        })
-        val schema = StructType{columnList}
-
-
-        val dataList = sortedMap.map(_._2)
-        var  list = new ListBuffer[Row]
-        list.+=(Row(dataList.mkString(",")))
-
-
-        val rdd2 = spark .sparkContext.makeRDD(list)
-        // 使用Spark写入
-        val dataFrame = spark.createDataFrame(rdd2,schema)
-        val prop = new Properties()
-        prop.put("user",connectInfo._3)
-        prop.put("password",connectInfo._4)
-        dataFrame.write.mode(SaveMode.Overwrite).jdbc(url,tableName,prop)
-      }
-    })
-
-    DBConnUtil.closeConnection(newConnect)
-
+    output.writeIterable(records,spark,hiveFilterTables,dbType)
   }
 
 
@@ -282,7 +235,8 @@ object SparkEngineDriver {
 
     val dbConfigfile = getPropFileFromSparkConf(sparkConf, "database.properties")
     val properties = getProperties(dbConfigfile)
-    val connectInfo = (properties.getProperty("url"), properties.getProperty("username"), properties.getProperty("password"), properties.getProperty("dataBaseName"))
+    val connectInfo = (properties.getProperty("mysql.url"), properties.getProperty("mysql.username"),
+      properties.getProperty("mysql.password"), properties.getProperty("mysql.dataBaseName"))
 
     val kafkaParams = Map[String, Object](
       ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG -> bootstrapServers,

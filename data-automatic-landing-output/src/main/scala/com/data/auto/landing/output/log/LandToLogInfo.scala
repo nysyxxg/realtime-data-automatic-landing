@@ -36,5 +36,8 @@ class LandToLogInfo(dbConfigfile: File)extends LandOutputTrait with Serializable
 
   override def createTable(conn: Connection,createTableSql: String): Unit = ???
 
-  override def createDataBase(conn: Connection,createDataBaseSql: String): Unit = ???
+  override def createDataBase(createDataBaseSql: String): Unit = ???
+
+  override def writeIterable(records: Iterable[Map[String, String]], spark: SparkSession,
+                             hiveFilterTables: Set[String], dbType: String): Unit = ???
 }

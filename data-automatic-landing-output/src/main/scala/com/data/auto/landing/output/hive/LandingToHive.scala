@@ -20,10 +20,10 @@ import org.slf4j.LoggerFactory
 
 import scala.collection.convert.WrapAsScala.collectionAsScalaIterable
 
-class LandingToHive  (spark: SparkSession, groupId: String, hiveDbName: String, tableName: String, filterTables: Set[String])
+class LandingToHive (spark: SparkSession, groupId: String, hiveDbName: String, tableName: String, filterTables: Set[String])
   extends LandOutputTrait with Serializable {
 
-  def createDataBase(conn: Connection,createDataBaseSql:String): Unit = this.synchronized {
+  def createDataBase(createDataBaseSql:String): Unit = this.synchronized {
     spark.sql(createDataBaseSql)
   }
 
@@ -143,5 +143,6 @@ class LandingToHive  (spark: SparkSession, groupId: String, hiveDbName: String, 
     })
   }
 
-
+  override def writeIterable(records: Iterable[Map[String, String]], spark: SparkSession,
+                             hiveFilterTables: Set[String], dbType: String): Unit = ???
 }

@@ -22,7 +22,7 @@ public class SqlUtil {
             sql.append("CREATE table IF NOT EXISTS " + tableName + "( ").append("\r\n");
             for (String field : fieldList) {
                 System.out.println("建表字段： " + field);
-                sql.append(field).append("  varchar(20)  DEFAULT NULL ").append(",").append("\n");
+                sql.append(field).append("  varchar(100)  DEFAULT NULL ").append(",").append("\n");
             }
             sql.append("PRIMARY KEY (`msgid`,`uuId`,`dataVer`)").append("\n");
             sql.append(") default charset utf8 COLLATE utf8_general_ci; ");
