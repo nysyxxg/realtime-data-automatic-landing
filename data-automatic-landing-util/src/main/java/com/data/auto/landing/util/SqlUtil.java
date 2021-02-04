@@ -39,8 +39,30 @@ public class SqlUtil {
         return sql.toString();
     }
     
+    
+    public static String getAlterTableSql(String dbType, String tableName, List<String> fieldList) {
+        StringBuffer sql = new StringBuffer();
+        
+        if ("mysql".equalsIgnoreCase(dbType)) {
+            sql.append("ALTER TABLE " + tableName + " ADD (").append("\r\n");
+            
+            for (int i = 0; i < fieldList.size(); i++) {
+                String field = fieldList.get(i);
+                sql.append(field).append("   varchar(100) ");
+                if (i != fieldList.size() - 1) {
+                    sql.append(", ").append("\r\n");
+                }
+            }
+            sql.append("\r\n");
+            sql.append(")").append("\r\n");
+        } else if ("hive".equalsIgnoreCase(dbType)) {
+        
+        }
+        return sql.toString();
+    }
+    
     public static void main(String[] args) {
-        String dbType = "hive";
+        String dbType = "mysql";
         String tableName = "test";
         List<String> fieldList = new ArrayList<String>();
         fieldList.add("id");
@@ -51,5 +73,8 @@ public class SqlUtil {
         fieldList.add("dataVer");
         String sql = SqlUtil.getCreateTableSql(dbType, tableName, fieldList);
         System.out.println(sql);
+        
+        String sql2 = SqlUtil.getAlterTableSql(dbType, tableName, fieldList);
+        System.out.println(sql2);
     }
 }

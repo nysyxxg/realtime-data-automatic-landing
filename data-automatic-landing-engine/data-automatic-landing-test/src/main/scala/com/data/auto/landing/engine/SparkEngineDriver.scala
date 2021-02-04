@@ -123,11 +123,14 @@ object SparkEngineDriver {
       log.info(s"数据开始写入.....日志文件............................." + dataBaseName)
       new LandToLogInfo(dbConfigfile)
     }
+    var lruCache : LRUCacheUtil[String, String] = new LRUCacheUtil[String, String](100)
     // 创建数据库
-    var createDataBaseSql  = SqlUtil.getCreateDataBaseSql(dbType, dataBaseName)
-    output.createDataBase(createDataBaseSql)
-
-    output.writeIterable(records,spark,hiveFilterTables,dbType)
+    val dbKey = dbType + "_" + dataBaseName
+    if(lruCache.get(dbKey) == null){
+      var createDataBaseSql  = SqlUtil.getCreateDataBaseSql(dbType, dataBaseName)
+      output.createDataBase(createDataBaseSql)
+    }
+    output.writeIterable(records,spark,hiveFilterTables,dbType,lruCache)
   }
 
 
