@@ -8,7 +8,7 @@ import com.data.auto.landing.output.LandOutputTrait
 import com.data.auto.landing.schema.metadata.matcher.MetaDataMatcher
 import com.data.auto.landing.schema.metadata.store.MetaDataStore
 import com.data.auto.landing.schema.metadata.store.MetaDataStore.MetaInfo
-import com.data.auto.landing.util.JsonUtils
+import com.data.auto.landing.util.{JsonUtils, LRUCacheUtil}
 import org.apache.hadoop.hive.conf.HiveConf
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient
 import org.apache.spark.rdd.RDD
@@ -27,8 +27,8 @@ class LandingToHive (spark: SparkSession, groupId: String, hiveDbName: String, t
     spark.sql(createDataBaseSql)
   }
 
-  override def createTable(conn: Connection,createTableSql:String): Unit =this.synchronized {
-    spark.sql("create table if not exists " + tableName)
+  override def executeSql(conn: Connection,createTableSql:String): Unit =this.synchronized {
+    spark.sql(createTableSql)
   }
 
 
@@ -144,5 +144,5 @@ class LandingToHive (spark: SparkSession, groupId: String, hiveDbName: String, t
   }
 
   override def writeIterable(records: Iterable[Map[String, String]], spark: SparkSession,
-                             hiveFilterTables: Set[String], dbType: String): Unit = ???
+                             hiveFilterTables: Set[String], dbType: String,lruCache : LRUCacheUtil[String, String]): Unit = ???
 }

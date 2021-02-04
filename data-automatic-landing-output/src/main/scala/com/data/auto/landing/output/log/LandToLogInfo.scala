@@ -5,11 +5,12 @@ import java.sql.Connection
 
 import com.data.auto.landing.output.LandOutputTrait
 import com.data.auto.landing.schema.metadata.store.MetaDataStore.MetaInfo
+import com.data.auto.landing.util.LRUCacheUtil
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.streaming.dstream.DStream
 
-class LandToLogInfo(dbConfigfile: File)extends LandOutputTrait with Serializable {
+class LandToLogInfo(dbConfigfile: File) extends LandOutputTrait with Serializable {
   override def getMeta: MetaInfo = ???
 
   override def write(rddStream: DStream[Seq[(String, Map[String, String])]], spark: SparkSession, filterTables: Set[String]): Unit = ???
@@ -34,10 +35,10 @@ class LandToLogInfo(dbConfigfile: File)extends LandOutputTrait with Serializable
     })
   }
 
-  override def createTable(conn: Connection,createTableSql: String): Unit = ???
+  override def executeSql(conn: Connection, createTableSql: String): Unit = ???
 
   override def createDataBase(createDataBaseSql: String): Unit = ???
 
   override def writeIterable(records: Iterable[Map[String, String]], spark: SparkSession,
-                             hiveFilterTables: Set[String], dbType: String): Unit = ???
+                             hiveFilterTables: Set[String], dbType: String, lruCache: LRUCacheUtil[String, String]): Unit = ???
 }

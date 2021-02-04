@@ -9,7 +9,7 @@ import com.data.auto.landing.output.LandOutputTrait
 import com.data.auto.landing.output.partitioner.DataOutputPartitioner
 import com.data.auto.landing.schema.metadata.matcher.MetaDataMatcher
 import com.data.auto.landing.schema.metadata.store.MetaDataStore
-import com.data.auto.landing.util.{DBConnUtil, PropertiesUtil, SqlUtil}
+import com.data.auto.landing.util.{DBConnUtil, LRUCacheUtil, PropertiesUtil, SqlUtil}
 import org.apache.commons.lang3.StringUtils
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.{Row, SaveMode, SparkSession}
@@ -59,11 +59,19 @@ class LandToMySQL private(dataBaseName: String, tableName: String, groupId: Stri
     DBConnUtil.closeConnection(connect)
   }
 
-  override def createTable(conn: Connection, createTableSql: String): Unit = this.synchronized {
+  override def executeSql(conn: Connection, createTableSql: String): Unit = this.synchronized {
     val stat = conn.createStatement()
     stat.executeUpdate(createTableSql);
     stat.close
   }
+
+  def getAlterTableSql(dbType: String, tableName: String, fieldListNew: List[String],
+                       tableFieldListOld: List[String]): String = this.synchronized {
+    val newAddFieldList = fieldListNew.filter(field => !tableFieldListOld.contains(field))
+    var alterSql = SqlUtil.getAlterTableSql(dbType, tableName, WrapAsJava.seqAsJavaList(newAddFieldList))
+    alterSql
+  }
+
 
   override def getMeta: MetaDataStore.MetaInfo = {
     Class.forName(properties.getProperty("driver"))
@@ -369,7 +377,7 @@ class LandToMySQL private(dataBaseName: String, tableName: String, groupId: Stri
         val fieldList = sortedMap.map(_._1)
         //获取字段
         var createTableSql = SqlUtil.getCreateTableSql(dbType, tableName, WrapAsJava.seqAsJavaList(fieldList))
-        createTable(newConnect, createTableSql)
+        executeSql(newConnect, createTableSql)
 
 
         var columnList = new ListBuffer[StructField]
@@ -397,14 +405,18 @@ class LandToMySQL private(dataBaseName: String, tableName: String, groupId: Stri
 
   }
 
+
   def writeDataWithJdbc(records: Iterable[Map[String, String]], spark: SparkSession,
-                        hiveFilterTables: Set[String], dbType: String) = {
+                        hiveFilterTables: Set[String], dbType: String,
+                        lruCache: LRUCacheUtil[String, String]) = {
     // 替换 为新的 数据库
     val url = connectInfo._2.replace(connectInfo._5, dataBaseName)
     var newConnect: Connection = DBConnUtil.getConnection(connectInfo._1, url, connectInfo._3, connectInfo._4)
     newConnect.setAutoCommit(false)
     // 开始对一个表的数据进行写入
     log.info("-------------数据写入表：" + tableName + "----数据记录数： " + records.size)
+    var tableNameKey = dbType + "_" + dataBaseName + "_" + tableName
+    var tableFieldListOld = lruCache.get(tableNameKey) //获取字段
     records.foreach(dataVal => { // 处理每一行数据
       if (!dataVal.isEmpty) {
         println("----------------------------------");
@@ -413,18 +425,27 @@ class LandToMySQL private(dataBaseName: String, tableName: String, groupId: Stri
           println("field = " + value._1 + "\t  data= " + value._2)
         })
 
-        val fieldList = sortedMap.map(_._1)
-        //获取字段
-        var createTableSql = SqlUtil.getCreateTableSql(dbType, tableName, WrapAsJava.seqAsJavaList(fieldList))
-        createTable(newConnect, createTableSql)
+        val fieldListNew = sortedMap.map(_._1)
+
+        if (tableFieldListOld == null) { // 说明是第一次创建
+          var createTableSql = SqlUtil.getCreateTableSql(dbType, tableName, WrapAsJava.seqAsJavaList(fieldListNew))
+          executeSql(newConnect, createTableSql)
+        } else { // 说明已经表，获取对应的字段列表
+          // 找出 新增的字段
+          var alterSql = getAlterTableSql(dbType, tableName, fieldListNew, tableFieldListOld.toString.split(",").toList)
+          executeSql(newConnect, alterSql)
+        }
+
+        // 更新缓存
+        lruCache.put(tableNameKey, fieldListNew.mkString(","))
 
         val dataList = sortedMap.map(_._2) // 获取数据
 
         val nodeLog = LoggerFactory.getLogger(getClass)
-        val insertSql = s"INSERT INTO $tableName (`${fieldList.mkString("`, `")}`) VALUES (${fieldList.map(_ => "?").mkString(",")}) ON DUPLICATE KEY UPDATE ${fieldList.map(colName => s"`$colName` = VALUES(`$colName`)").mkString(", ")}"
+        val insertSql = s"INSERT INTO $tableName (`${fieldListNew.mkString("`, `")}`) VALUES (${fieldListNew.map(_ => "?").mkString(",")}) ON DUPLICATE KEY UPDATE ${fieldListNew.map(colName => s"`$colName` = VALUES(`$colName`)").mkString(", ")}"
         nodeLog.info(insertSql)
 
-         newConnect.prepareStatement(insertSql).use(preparedStatement => {
+        newConnect.prepareStatement(insertSql).use(preparedStatement => {
           dataList.zipWithIndex.foreach {
             case (str, i) =>
               preparedStatement.setObject(i + 1, str)
@@ -442,14 +463,12 @@ class LandToMySQL private(dataBaseName: String, tableName: String, groupId: Stri
                             hiveFilterTables: Set[String], dbType: String): Unit = {
     // 替换 为新的 数据库
     val url = connectInfo._1.replace(connectInfo._4, dataBaseName)
-    var newConnect: Connection = DBConnUtil.getConnection(connectInfo._1, url, connectInfo._3, connectInfo._4)
     // 开始对一个表的数据进行写入
     log.info("-------------数据写入表：" + tableName + "----数据记录数： " + records.size)
     records.foreach(dataVal => { // 处理每一行数据
       if (!dataVal.isEmpty) {
         println("----------------------------------");
         var sortedMap = dataVal.toList.sortBy(_._1) // 对map的key进行排序
-
         sortedMap.map(value => {
           println("field = " + value._1 + "\t  data= " + value._2)
         })
@@ -457,8 +476,7 @@ class LandToMySQL private(dataBaseName: String, tableName: String, groupId: Stri
         val fieldList = sortedMap.map(_._1)
         //获取字段
         var createTableSql = SqlUtil.getCreateTableSql(dbType, tableName, WrapAsJava.seqAsJavaList(fieldList))
-        createTable(newConnect, createTableSql)
-
+        spark.sql(createTableSql)
 
         var columnList = new ListBuffer[StructField]
         fieldList.foreach(field => {
@@ -481,16 +499,15 @@ class LandToMySQL private(dataBaseName: String, tableName: String, groupId: Stri
         dataFrame.write.mode(SaveMode.Overwrite).jdbc(url, tableName, prop)
       }
     })
-    DBConnUtil.closeConnection(newConnect)
-
   }
 
   override def writeIterable(records: Iterable[Map[String, String]], spark: SparkSession,
-                             hiveFilterTables: Set[String], dbType: String): Unit = {
+                             hiveFilterTables: Set[String], dbType: String,
+                             lruCache: LRUCacheUtil[String, String]): Unit = {
     // 方法1
     // writeDataWithSparkAndJdbc(records,spark,hiveFilterTables,dbType)
     // 方法 2：
-    writeDataWithJdbc(records, spark, hiveFilterTables, dbType)
+    writeDataWithJdbc(records, spark, hiveFilterTables, dbType, lruCache)
 
     // 方法3：
     //writeDataWithSparkSql(records,spark,hiveFilterTables,dbType)
