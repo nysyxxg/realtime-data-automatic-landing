@@ -16,6 +16,7 @@ public class DBConnUtil {
         Connection conn = null;
         try {
             conn = DriverManager.getConnection(url, username, password);
+            System.out.println("初始化数据库连接....");
         } catch (SQLException e) {
             e.printStackTrace();
         }
@@ -25,6 +26,7 @@ public class DBConnUtil {
     public static void closeConnection(Connection newConnect){
         if(newConnect != null){
             try {
+                System.out.println("关闭数据库连接....");
                 newConnect.close();
             } catch (SQLException e) {
                 e.printStackTrace();

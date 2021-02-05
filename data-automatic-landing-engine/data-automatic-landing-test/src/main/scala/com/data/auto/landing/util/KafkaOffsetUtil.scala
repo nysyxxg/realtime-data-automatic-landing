@@ -14,16 +14,19 @@ object KafkaOffsetUtil {
   /**
     * 从数据库读取偏移量
     */
-  def getOffsetMap(url: String, userName: String, password: String, groupid: String, topic: String) = {
+  def getOffsetMap(url: String, userName: String, password: String, groupid: String,
+                   kafkaTopic: Array[String]): mutable.Map[TopicPartition, Long] = {
     val offsetMap = mutable.Map[TopicPartition, Long]()
     var connection: Connection = null
     var pstmt: PreparedStatement = null
     var rs: ResultSet = null
     try {
       connection = DriverManager.getConnection(url, userName, password)
-      pstmt = connection.prepareStatement("select topic,partitions,untilOffset from kafka_offset where groupid=? and topic=?")
+
+      var topicStr = "'" + kafkaTopic.mkString("','") + "'"
+      var sql = "select topic,partitions,max(CONVERT(untilOffset,UNSIGNED)) AS untilOffset from kafka_offset where groupid=? and topic in (" + topicStr + ")  group by topic,`partitions`"
+      pstmt = connection.prepareStatement(sql)
       pstmt.setString(1, groupid)
-      pstmt.setString(2, topic)
       rs = pstmt.executeQuery()
 
       while (rs.next()) {

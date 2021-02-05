@@ -65,9 +65,12 @@ class LandToMySQL private(dataBaseName: String, tableName: String, groupId: Stri
     stat.close
   }
 
-  def getAlterTableSql(dbType: String, tableName: String, fieldListNew: List[String],
-                       tableFieldListOld: List[String]): String = this.synchronized {
+  def getNewAddFieldList(fieldListNew: List[String], tableFieldListOld: List[String]): List[String] = this.synchronized {
     val newAddFieldList = fieldListNew.filter(field => !tableFieldListOld.contains(field))
+    newAddFieldList
+  }
+
+  def getAlterTableSql(dbType: String, tableName: String, newAddFieldList: List[String]): String = this.synchronized {
     var alterSql = SqlUtil.getAlterTableSql(dbType, tableName, WrapAsJava.seqAsJavaList(newAddFieldList))
     alterSql
   }
@@ -416,24 +419,27 @@ class LandToMySQL private(dataBaseName: String, tableName: String, groupId: Stri
     // 开始对一个表的数据进行写入
     log.info("-------------数据写入表：" + tableName + "----数据记录数： " + records.size)
     var tableNameKey = dbType + "_" + dataBaseName + "_" + tableName
-    var tableFieldListOld = lruCache.get(tableNameKey) //获取字段
+
     records.foreach(dataVal => { // 处理每一行数据
       if (!dataVal.isEmpty) {
-        println("----------------------------------");
+        // println("----------------------------------");
         var sortedMap = dataVal.toList.sortBy(_._1) // 对map的key进行排序
-        sortedMap.map(value => {
-          println("field = " + value._1 + "\t  data= " + value._2)
-        })
+        //        sortedMap.map(value => {
+        //          println("field = " + value._1 + "\t  data= " + value._2)
+        //        })
 
         val fieldListNew = sortedMap.map(_._1)
-
+        var tableFieldListOld = lruCache.get(tableNameKey) //获取字段
         if (tableFieldListOld == null) { // 说明是第一次创建
           var createTableSql = SqlUtil.getCreateTableSql(dbType, tableName, WrapAsJava.seqAsJavaList(fieldListNew))
           executeSql(newConnect, createTableSql)
         } else { // 说明已经表，获取对应的字段列表
           // 找出 新增的字段
-          var alterSql = getAlterTableSql(dbType, tableName, fieldListNew, tableFieldListOld.toString.split(",").toList)
-          executeSql(newConnect, alterSql)
+          var newAddFieldList = getNewAddFieldList(fieldListNew, tableFieldListOld.toString.split(",").toList)
+          if (newAddFieldList.size > 0) {
+            var alterSql = getAlterTableSql(dbType, tableName, newAddFieldList)
+            executeSql(newConnect, alterSql)
+          }
         }
 
         // 更新缓存
@@ -443,7 +449,7 @@ class LandToMySQL private(dataBaseName: String, tableName: String, groupId: Stri
 
         val nodeLog = LoggerFactory.getLogger(getClass)
         val insertSql = s"INSERT INTO $tableName (`${fieldListNew.mkString("`, `")}`) VALUES (${fieldListNew.map(_ => "?").mkString(",")}) ON DUPLICATE KEY UPDATE ${fieldListNew.map(colName => s"`$colName` = VALUES(`$colName`)").mkString(", ")}"
-        nodeLog.info(insertSql)
+        //nodeLog.info(insertSql)
 
         newConnect.prepareStatement(insertSql).use(preparedStatement => {
           dataList.zipWithIndex.foreach {

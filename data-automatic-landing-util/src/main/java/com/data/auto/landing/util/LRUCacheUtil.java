@@ -17,7 +17,7 @@ public class LRUCacheUtil<K, V> {
         caches = new HashMap<K,CacheNode>(size);
     }
 
-    public void put(K k,V v){
+    public synchronized void put(K k,V v){
         CacheNode node = caches.get(k);
         if(node == null){
             if(caches.size() >= CacheCapcity){

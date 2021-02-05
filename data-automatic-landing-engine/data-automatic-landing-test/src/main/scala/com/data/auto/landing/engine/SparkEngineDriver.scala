@@ -29,7 +29,6 @@ import com.data.auto.landing.output.hbase.LandToHbase
 import com.data.auto.landing.output.log.LandToLogInfo
 import com.data.auto.landing.parsing.jsondata.ReaderJsonData
 import com.data.auto.landing.util._
-import org.apache.spark.sql.types.{LongType, StringType, StructField, StructType}
 
 import scala.collection.convert.WrapAsJava
 import scala.collection.mutable.ListBuffer
@@ -123,14 +122,14 @@ object SparkEngineDriver {
       log.info(s"数据开始写入.....日志文件............................." + dataBaseName)
       new LandToLogInfo(dbConfigfile)
     }
-    var lruCache : LRUCacheUtil[String, String] = new LRUCacheUtil[String, String](100)
+    var lruCache: LRUCacheUtil[String, String] = new LRUCacheUtil[String, String](100)
     // 创建数据库
     val dbKey = dbType + "_" + dataBaseName
-    if(lruCache.get(dbKey) == null){
-      var createDataBaseSql  = SqlUtil.getCreateDataBaseSql(dbType, dataBaseName)
+    if (lruCache.get(dbKey) == null) {
+      var createDataBaseSql = SqlUtil.getCreateDataBaseSql(dbType, dataBaseName)
       output.createDataBase(createDataBaseSql)
     }
-    output.writeIterable(records,spark,hiveFilterTables,dbType,lruCache)
+    output.writeIterable(records, spark, hiveFilterTables, dbType, lruCache)
   }
 
 
@@ -224,18 +223,19 @@ object SparkEngineDriver {
 
     val appName = s"From Kafka [ ${kafkaTopic.mkString(" ")} ] To My DataBase"
 
-    val spark = SparkSession.builder.appName(appName).master("local[3]").enableHiveSupport.getOrCreate
+    val conf = new SparkConf()
+    conf.set("spark.streaming.stopGracefullyOnShutdown", "true")
+    conf.set("spark.streaming.backpressure.enabled", "true")
+    conf.set("spark.streaming.backpressure.initialRate", "1000")
+    conf.set("spark.streaming.kafka.maxRatePerPartition", "1000")
+
+    val spark = SparkSession.builder.appName(appName).config(conf).master("local[4]").enableHiveSupport.getOrCreate
 
     val fileSystem = FileSystem.get(spark.sparkContext.hadoopConfiguration)
     fileSystem.create(processFilePath).use(_ => Unit)
 
     val sparkConf = spark.sparkContext.getConf
-    sparkConf.set("spark.streaming.stopGracefullyOnShutdown", "true")
-    sparkConf.set("spark.streaming.backpressure.enabled", "true")
-    sparkConf.set("spark.streaming.backpressure.initialRate", "1000")
-    sparkConf.set("spark.streaming.kafka.maxRatePerPartition", "1000")
     sparkConf.set("spark.files", "database.properties");
-
     val dbConfigfile = getPropFileFromSparkConf(sparkConf, "database.properties")
     val properties = getProperties(dbConfigfile)
     val connectInfo = (properties.getProperty("mysql.url"), properties.getProperty("mysql.username"),
@@ -250,9 +250,10 @@ object SparkEngineDriver {
       ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG -> (false: java.lang.Boolean)
     )
     log.info(JsonUtils.toJson(kafkaParams))
-    val offsetMap: mutable.Map[TopicPartition, Long] = KafkaOffsetUtil.getOffsetMap(connectInfo._1, connectInfo._2, connectInfo._3, groupId, kafkaTopic(0))
+    val offsetMap: mutable.Map[TopicPartition, Long] = KafkaOffsetUtil.getOffsetMap(connectInfo._1, connectInfo._2, connectInfo._3, groupId, kafkaTopic)
 
     val streamingContext = new StreamingContext(spark.sparkContext, Minutes(1))
+
     if (StringUtils.isNotBlank(checkpointDataPath)) {
       streamingContext.checkpoint(checkpointDataPath)
     }
@@ -283,13 +284,18 @@ object SparkEngineDriver {
           //              })
           //            }
           // 2-2 ：处理一个分区的数据,按照数据库类型，数据库名和表名称进行分组
+
           val keyValueRdd = rdd.map(processJsonDataV1(_)).flatMap(data => data).cache()
+
           val keyValueFilterRdd = keyValueRdd.filter(!_._1.equalsIgnoreCase("error"))
           keyValueFilterRdd.map(line => (line._1, line._2)).groupByKey().foreachPartition(partition => {
             partition.foreach(iter => {
               val key = iter._1
               val values = iter._2
+              val t1 = System.currentTimeMillis()
               processEveryLineV1(key, values, spark, groupId, dbConfigfile, hiveFilterTables)
+              val t2 = System.currentTimeMillis()
+              println("---------foreach------------花费时间： " + (t2-t1))
             })
           })
 
@@ -318,7 +324,7 @@ object SparkEngineDriver {
             var jdbc = connectInfoBC.value
             KafkaOffsetUtil.saveOffsetRanges(jdbc._1, jdbc._2, jdbc._3, groupIdBC.value, offsetRanges)
             //该RDD 异步提交
-            dStream.asInstanceOf[CanCommitOffsets].commitAsync(offsetRanges)
+            //dStream.asInstanceOf[CanCommitOffsets].commitAsync(offsetRanges)
           }
         }
       }
